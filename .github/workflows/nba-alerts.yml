@@ -1,0 +1,45 @@
+name: NBA Remarkable Game Alerts
+
+on:
+  # Run every 3 minutes during NBA game hours (12pm-1am ET = 4pm-5am UTC)
+  schedule:
+    # Every 3 minutes from 4pm-11:59pm UTC (12pm-8pm ET)
+    - cron: '*/3 16-23 * * *'
+    # Every 3 minutes from 12am-5am UTC (8pm-1am ET)
+    - cron: '*/3 0-5 * * *'
+  # Allow manual trigger for testing
+  workflow_dispatch:
+
+jobs:
+  check-games:
+    runs-on: ubuntu-latest
+    # Only run Oct-Jun (NBA season)
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'schedule' &&
+       contains(fromJSON('["10","11","12","01","02","03","04","05","06"]'),
+       format('{0}', github.event.schedule) && true || true))
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore alerts cache
+        uses: actions/cache@v4
+        with:
+          path: alerts_sent.json
+          key: alerts-${{ github.run_id }}
+          restore-keys: alerts-
+
+      - name: Run NBA alert check
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        run: python nba_alerts.py --once
