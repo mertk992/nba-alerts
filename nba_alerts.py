@@ -51,7 +51,7 @@ PACE_THRESHOLDS = {
 }
 
 # Minimum minutes played before pace projections are meaningful
-MIN_MINUTES_FOR_PACE = 12
+MIN_MINUTES_FOR_PACE = 9
 
 
 def load_avg_minutes_cache():
@@ -431,10 +431,12 @@ def run_check():
             remarkable = check_remarkable_players(details, game_info, avg_minutes_cache)
 
             for player in remarkable:
-                # Create a unique key: player + game + threshold tier
-                # We re-alert if they cross a higher tier
+                # Create a unique key: player + game + threshold tiers
+                # Re-alert if they cross a higher tier in any major stat
                 pts_tier = player["stats"]["PTS"] // 10 * 10
-                alert_key = f"{player['player_id']}_{game_id}_pts{pts_tier}"
+                reb_tier = player["stats"]["REB"] // 5 * 5
+                ast_tier = player["stats"]["AST"] // 5 * 5
+                alert_key = f"{player['player_id']}_{game_id}_p{pts_tier}_r{reb_tier}_a{ast_tier}"
 
                 if alert_key not in alerts_data["keys"]:
                     all_remarkable.append(player)
