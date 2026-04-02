@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 .env
 alerts_sent.json
+avg_minutes_cache.json

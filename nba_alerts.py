@@ -26,18 +26,22 @@ CHECK_INTERVAL_SECONDS = 150  # ~2.5 minutes
 # File to track already-sent alerts (avoids spam for same performance)
 ALERTS_SENT_FILE = os.path.join(os.path.dirname(__file__), "alerts_sent.json")
 
+# Player avg minutes cache (refreshed daily)
+AVG_MINUTES_CACHE_FILE = os.path.join(os.path.dirname(__file__), "avg_minutes_cache.json")
+ESPN_PLAYER_SPLITS = "https://site.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/{}/splits"
+
 # ── Remarkable Thresholds ──────────────────────────────────────
 # "Current" thresholds — already achieved in this game
 CURRENT_THRESHOLDS = {
     "PTS": 35,
-    "REB": 15,
-    "AST": 13,
+    "REB": 20,
+    "AST": 20,
     "STL": 5,
     "BLK": 5,
     "3PT_MADE": 7,
 }
 
-# "Pace" thresholds — projected over 48 minutes
+# "Pace" thresholds — projected to end of game using player's avg minutes
 PACE_THRESHOLDS = {
     "PTS": 40,
     "REB": 20,
@@ -47,7 +51,62 @@ PACE_THRESHOLDS = {
 }
 
 # Minimum minutes played before pace projections are meaningful
-MIN_MINUTES_FOR_PACE = 10
+MIN_MINUTES_FOR_PACE = 12
+
+
+def load_avg_minutes_cache():
+    """Load cached player average minutes per game."""
+    if os.path.exists(AVG_MINUTES_CACHE_FILE):
+        try:
+            with open(AVG_MINUTES_CACHE_FILE) as f:
+                data = json.load(f)
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            if data.get("date") == today:
+                return data.get("players", {})
+        except (json.JSONDecodeError, KeyError):
+            pass
+    return {}
+
+
+def save_avg_minutes_cache(cache):
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    with open(AVG_MINUTES_CACHE_FILE, "w") as f:
+        json.dump({"date": today, "players": cache}, f)
+
+
+def get_player_avg_minutes(player_id, cache):
+    """Fetch a player's season average minutes per game, using cache."""
+    if player_id in cache:
+        return cache[player_id]
+
+    try:
+        resp = requests.get(
+            ESPN_PLAYER_SPLITS.format(player_id), timeout=10
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        # Navigate: splitCategories[0].splits[0].stats[1] = avgMinutes
+        # But verify via labels/names arrays
+        labels = data.get("names", [])
+        min_idx = None
+        for i, name in enumerate(labels):
+            if name == "avgMinutes":
+                min_idx = i
+                break
+
+        if min_idx is not None:
+            splits = data.get("splitCategories", [{}])[0].get("splits", [{}])
+            if splits:
+                avg_min = float(splits[0].get("stats", [])[min_idx])
+                cache[player_id] = avg_min
+                return avg_min
+    except Exception as e:
+        print(f"      [WARN] Could not fetch avg minutes for player {player_id}: {e}")
+
+    # Fallback: assume 32 minutes (league average for starters)
+    cache[player_id] = 32.0
+    return 32.0
 
 
 def load_alerts_sent():
@@ -139,7 +198,7 @@ def get_game_progress(game_data):
         return 0.5, 2, 24.0  # fallback to mid-game
 
 
-def check_remarkable_players(game_data, game_info):
+def check_remarkable_players(game_data, game_info, avg_minutes_cache):
     """Check all players in a game for remarkable performances."""
     remarkable = []
     game_progress, current_period, game_minutes = get_game_progress(game_data)
@@ -188,17 +247,19 @@ def check_remarkable_players(game_data, game_info):
                     if val >= threshold:
                         reasons.append(f"{val} {stat_name} (threshold: {threshold})")
 
-                # Check pace thresholds (only if enough minutes played)
+                # Check pace thresholds using player's avg minutes per game
                 if minutes >= MIN_MINUTES_FOR_PACE and minutes > 0 and game_progress < 0.95:
-                    pace_factor = 36.0 / minutes  # per-36 projection
-                    for stat_name, threshold in PACE_THRESHOLDS.items():
-                        val = current_stats.get(stat_name, 0)
-                        projected = val * pace_factor
-                        if projected >= threshold and val >= threshold * 0.4:
-                            reasons.append(
-                                f"On pace for {projected:.0f} {stat_name} "
-                                f"({val} in {minutes:.0f} min)"
-                            )
+                    avg_min = get_player_avg_minutes(player_id, avg_minutes_cache)
+                    if avg_min > minutes:
+                        pace_factor = avg_min / minutes
+                        for stat_name, threshold in PACE_THRESHOLDS.items():
+                            val = current_stats.get(stat_name, 0)
+                            projected = val * pace_factor
+                            if projected >= threshold and val >= threshold * 0.4:
+                                reasons.append(
+                                    f"On pace for {projected:.0f} {stat_name} "
+                                    f"({val} in {minutes:.0f} min, avg {avg_min:.0f} mpg)"
+                                )
 
                 if reasons:
                     remarkable.append({
@@ -357,6 +418,7 @@ def run_check():
     print(f"[INFO] Found {len(live_games)} live game(s)")
 
     alerts_data = load_alerts_sent()
+    avg_minutes_cache = load_avg_minutes_cache()
     all_remarkable = []
 
     for event in live_games:
@@ -366,7 +428,7 @@ def run_check():
 
         try:
             details = get_game_details(game_id)
-            remarkable = check_remarkable_players(details, game_info)
+            remarkable = check_remarkable_players(details, game_info, avg_minutes_cache)
 
             for player in remarkable:
                 # Create a unique key: player + game + threshold tier
@@ -383,6 +445,9 @@ def run_check():
 
         except Exception as e:
             print(f"    [ERROR] Failed to get details for game {game_id}: {e}")
+
+    # Save avg minutes cache for future runs
+    save_avg_minutes_cache(avg_minutes_cache)
 
     if all_remarkable:
         subject, body = build_email(all_remarkable)
