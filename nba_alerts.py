@@ -14,7 +14,7 @@ from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timezone
 
 # ── Configuration ──────────────────────────────────────────────
-RECIPIENT_EMAIL = "mertk992@gmail.com"
+RECIPIENT_EMAILS = ["mertk992@gmail.com", "grajek760@gmail.com"]
 SENDER_EMAIL = os.environ.get("GMAIL_ADDRESS", "")
 GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
 
@@ -52,6 +52,14 @@ PACE_THRESHOLDS = {
 
 # Minimum minutes played before pace projections are meaningful
 MIN_MINUTES_FOR_PACE = 9
+
+# ── Kumingabad Alert ──────────────────────────────────────────
+KUMINGA_PLAYER_ID = "4433247"
+KUMINGA_MIN_MINUTES = 25
+KUMINGA_MIN_FGA = 8       # minimum attempts before FG% matters
+KUMINGA_FG_PCT_THRESHOLD = 0.40
+KUMINGA_REB_THRESHOLD = 4
+KUMINGA_AST_THRESHOLD = 4
 
 
 def load_avg_minutes_cache():
@@ -261,6 +269,28 @@ def check_remarkable_players(game_data, game_info, avg_minutes_cache):
                                     f"({val} in {minutes:.0f} min, avg {avg_min:.0f} mpg)"
                                 )
 
+                # ── Kumingabad Alert ──────────────────────────
+                if player_id == KUMINGA_PLAYER_ID and minutes >= KUMINGA_MIN_MINUTES:
+                    kuminga_reasons = []
+                    # FG% check (min attempts)
+                    fg_str = stat_map.get("fg", "0-0")
+                    fg_parts = str(fg_str).split("-") if fg_str and fg_str != "--" else ["0", "0"]
+                    fg_made = int(fg_parts[0]) if len(fg_parts) >= 2 else 0
+                    fg_att = int(fg_parts[1]) if len(fg_parts) >= 2 else 0
+                    if fg_att >= KUMINGA_MIN_FGA:
+                        fg_pct = fg_made / fg_att
+                        if fg_pct < KUMINGA_FG_PCT_THRESHOLD:
+                            kuminga_reasons.append(
+                                f"Shooting {fg_pct:.1%} ({fg_made}/{fg_att} FG)"
+                            )
+                    if reb < KUMINGA_REB_THRESHOLD:
+                        kuminga_reasons.append(f"Only {reb} REB")
+                    if ast < KUMINGA_AST_THRESHOLD:
+                        kuminga_reasons.append(f"Only {ast} AST")
+
+                    if kuminga_reasons:
+                        reasons.extend([f"🚨 KUMINGABAD: {r}" for r in kuminga_reasons])
+
                 if reasons:
                     remarkable.append({
                         "player_name": player_name,
@@ -372,12 +402,12 @@ def send_email(subject, html_body):
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = f"NBAPopoff <{SENDER_EMAIL}>"
-    msg["To"] = RECIPIENT_EMAIL
+    msg["To"] = ", ".join(RECIPIENT_EMAILS)
     msg.attach(MIMEText(html_body, "html"))
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
         server.login(SENDER_EMAIL, GMAIL_APP_PASSWORD)
-        server.sendmail(SENDER_EMAIL, RECIPIENT_EMAIL, msg.as_string())
+        server.sendmail(SENDER_EMAIL, RECIPIENT_EMAILS, msg.as_string())
 
     print(f"[EMAIL SENT] {subject}")
     return True
