@@ -262,18 +262,20 @@ def check_remarkable_players(game_data, game_info, avg_minutes_cache):
                 # Check pace thresholds using player's avg minutes per game
                 if minutes >= MIN_MINUTES_FOR_PACE and minutes > 0 and game_progress < 0.95:
                     avg_min = get_player_avg_minutes(player_id, avg_minutes_cache)
-                    if avg_min > minutes:
-                        pace_factor = avg_min / minutes
+                    # Project to whichever is greater: avg minutes or estimated
+                    # remaining minutes based on game progress
+                    estimated_total_min = minutes / game_progress if game_progress > 0.1 else minutes * 4
+                    proj_minutes = max(avg_min, estimated_total_min)
+                    if proj_minutes > minutes:
+                        pace_factor = proj_minutes / minutes
                         for stat_name, threshold in PACE_THRESHOLDS.items():
                             val = current_stats.get(stat_name, 0)
                             projected = val * pace_factor
                             if projected >= threshold and val >= threshold * 0.4:
                                 reasons.append(
                                     f"On pace for {projected:.0f} {stat_name} "
-                                    f"({val} in {minutes:.0f} min, avg {avg_min:.0f} mpg)"
+                                    f"({val} in {minutes:.0f} min)"
                                 )
-                    elif pts >= 20 or reb >= 10:
-                        print(f"    [DEBUG] {player_name}: avg_min ({avg_min:.0f}) <= minutes ({minutes:.0f}), skipping pace")
 
                 # ── Kumingabad Alert ──────────────────────────
                 if player_id == KUMINGA_PLAYER_ID and minutes >= KUMINGA_MIN_MINUTES:
