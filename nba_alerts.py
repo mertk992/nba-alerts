@@ -249,6 +249,10 @@ def check_remarkable_players(game_data, game_info, avg_minutes_cache):
 
                 reasons = []
 
+                # Debug: log high-stat players
+                if pts >= 20 or reb >= 10 or ast >= 10:
+                    print(f"    [DEBUG] {player_name}: {pts}pts/{reb}reb/{ast}ast in {minutes:.0f}min (progress={game_progress:.2f})")
+
                 # Check current thresholds
                 for stat_name, threshold in CURRENT_THRESHOLDS.items():
                     val = current_stats.get(stat_name, 0)
@@ -268,6 +272,8 @@ def check_remarkable_players(game_data, game_info, avg_minutes_cache):
                                     f"On pace for {projected:.0f} {stat_name} "
                                     f"({val} in {minutes:.0f} min, avg {avg_min:.0f} mpg)"
                                 )
+                    elif pts >= 20 or reb >= 10:
+                        print(f"    [DEBUG] {player_name}: avg_min ({avg_min:.0f}) <= minutes ({minutes:.0f}), skipping pace")
 
                 # ── Kumingabad Alert ──────────────────────────
                 if player_id == KUMINGA_PLAYER_ID and minutes >= KUMINGA_MIN_MINUTES:
