@@ -260,21 +260,20 @@ def check_remarkable_players(game_data, game_info, avg_minutes_cache):
                         reasons.append(f"{val} {stat_name} (threshold: {threshold})")
 
                 # Check pace thresholds using player's avg minutes per game
-                if minutes >= MIN_MINUTES_FOR_PACE and minutes > 0 and game_progress < 0.95:
+                # Only project if the player still has meaningful time left
+                if minutes >= MIN_MINUTES_FOR_PACE and minutes > 0 and game_progress < 0.90:
                     avg_min = get_player_avg_minutes(player_id, avg_minutes_cache)
-                    # Project to whichever is greater: avg minutes or estimated
-                    # remaining minutes based on game progress
-                    estimated_total_min = minutes / game_progress if game_progress > 0.1 else minutes * 4
-                    proj_minutes = max(avg_min, estimated_total_min)
-                    if proj_minutes > minutes:
-                        pace_factor = proj_minutes / minutes
+                    remaining_min = max(0, avg_min - minutes)
+                    if remaining_min >= 3:  # at least 3 min left to play
+                        proj_total_min = minutes + remaining_min
+                        pace_factor = proj_total_min / minutes
                         for stat_name, threshold in PACE_THRESHOLDS.items():
                             val = current_stats.get(stat_name, 0)
                             projected = val * pace_factor
                             if projected >= threshold and val >= threshold * 0.4:
                                 reasons.append(
                                     f"On pace for {projected:.0f} {stat_name} "
-                                    f"({val} in {minutes:.0f} min)"
+                                    f"({val} in {minutes:.0f} min, ~{remaining_min:.0f} min left)"
                                 )
 
                 # ── Kumingabad Alert ──────────────────────────
